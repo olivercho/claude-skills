@@ -93,6 +93,10 @@ try:
     if not message:
         sys.exit(0)
 
+    # Skip messages that originated from Telegram — already visible there
+    if '<channel source="plugin:telegram:telegram"' in message:
+        sys.exit(0)
+
     text = f"{PREFIX} {message}"
     payload = json.dumps({"chat_id": CHAT_ID, "text": text[:4096]}).encode()
     req = urllib.request.Request(
@@ -163,6 +167,7 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 ## Key technical notes
 
 - **UserPromptSubmit hook** sends data with a `prompt` key (not `message`) — the script handles both for compatibility
+- **Telegram plugin 사용 시**: 텔레그램에서 온 메시지는 `<channel source="plugin:telegram:telegram">` 태그로 감싸져 들어오는데, 이미 텔레그램에 있는 메시지이므로 중복 전달을 자동으로 스킵함
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
 - Both hooks use `async: true` so they never block Claude's response
 - Messages are truncated to 4096 characters (Telegram's limit)
