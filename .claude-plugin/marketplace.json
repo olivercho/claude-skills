@@ -1,0 +1,14 @@
+{
+  "name": "olivercho",
+  "owner": {
+    "name": "Oliver Cho",
+    "url": "https://github.com/olivercho"
+  },
+  "plugins": [
+    {
+      "name": "claude-telegram-hooks",
+      "source": "./skills/claude-telegram-hooks",
+      "description": "Automatic Telegram forwarding for Claude Code sessions"
+    }
+  ]
+}
