@@ -167,7 +167,7 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 ## Key technical notes
 
 - **UserPromptSubmit hook** sends data with a `prompt` key (not `message`) — the script handles both for compatibility
-- **Telegram plugin 사용 시**: 텔레그램에서 온 메시지는 `<channel source="plugin:telegram:telegram">` 태그로 감싸져 들어오는데, 이미 텔레그램에 있는 메시지이므로 중복 전달을 자동으로 스킵함
+- **Telegram plugin compatibility**: messages from Telegram arrive wrapped in `<channel source="plugin:telegram:telegram">` tags — these are already visible in Telegram, so they are automatically skipped to avoid duplicate forwarding
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
 - Both hooks use `async: true` so they never block Claude's response
 - Messages are truncated to 4096 characters (Telegram's limit)
