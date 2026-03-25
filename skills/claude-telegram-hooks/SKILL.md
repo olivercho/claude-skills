@@ -1,6 +1,6 @@
 ---
 name: claude-telegram-hooks
-description: Set up automatic Telegram forwarding for Claude Code sessions. Forwards the user's terminal messages to Telegram with a custom prefix, and forwards Claude's responses automatically via Stop hook. Use this skill when the user wants to monitor or receive Claude Code conversations in Telegram, set up Telegram integration, or bridge their terminal session to a Telegram chat.
+description: Set up automatic Telegram forwarding for Claude Code sessions. Forwards the user's terminal messages to Telegram with a custom prefix, forwards Claude's responses automatically via Stop hook, sends attention alerts via Notification hook, and sends context compaction alerts via PreCompact hook. Use this skill when the user wants to monitor or receive Claude Code conversations in Telegram, set up Telegram integration, or bridge their terminal session to a Telegram chat.
 ---
 
 # Telegram Hooks Setup
@@ -8,6 +8,8 @@ description: Set up automatic Telegram forwarding for Claude Code sessions. Forw
 This skill sets up two-way Telegram forwarding for Claude Code:
 - **User messages** (UserPromptSubmit hook) → forwarded to Telegram with a configurable prefix
 - **Claude responses** (Stop hook) → forwarded to Telegram automatically
+- **Attention alerts** (Notification hook) → sent when Claude needs user input or permission
+- **Context compaction alerts** (PreCompact hook) → sent when token limit is reached
 
 ## Step 1: Gather configuration
 
@@ -37,7 +39,7 @@ This file stays on the user's machine and is never shared.
 
 ## Step 3: Create the scripts
 
-Create `~/.claude/scripts/` if it doesn't exist, then write both scripts.
+Create `~/.claude/scripts/` if it doesn't exist, then write all three scripts.
 
 ### `~/.claude/scripts/telegram-forward.py` (Stop hook — Claude's responses)
 
@@ -110,6 +112,41 @@ except Exception:
     pass
 ```
 
+### `~/.claude/scripts/telegram-notify.py` (Notification hook — attention alerts)
+
+```python
+#!/usr/bin/env python3
+"""Notification hook: sends Telegram alert when Claude needs user attention."""
+import sys, json, os, urllib.request
+
+config_path = os.path.expanduser("~/.claude/telegram-hooks.json")
+with open(config_path) as f:
+    config = json.load(f)
+
+BOT_TOKEN = config["bot_token"]
+CHAT_ID = config["chat_id"]
+
+try:
+    data = json.load(sys.stdin)
+    msg = data.get("message", "").strip()
+    if not msg:
+        msg = "⏳ Claude가 입력 대기 중입니다."
+
+    payload = json.dumps({
+        "chat_id": CHAT_ID,
+        "text": f"🔔 {msg[:4000]}"
+    }).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    urllib.request.urlopen(req, timeout=10)
+
+except Exception:
+    pass
+```
+
 ## Step 4: Update settings.json
 
 Read `~/.claude/settings.json` first, then merge in the following hooks (preserve existing settings):
@@ -117,6 +154,30 @@ Read `~/.claude/settings.json` first, then merge in the following hooks (preserv
 ```json
 {
   "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"message\": \"⚡ 토큰 한도 도달 - 컨텍스트 압축 중\"}' | python3 ~/.claude/scripts/telegram-notify.py",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/scripts/telegram-notify.py",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -169,5 +230,16 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 - **UserPromptSubmit hook** sends data with a `prompt` key (not `message`) — the script handles both for compatibility
 - **Telegram plugin compatibility**: messages from Telegram arrive wrapped in `<channel source="plugin:telegram:telegram">` tags — these are already visible in Telegram, so they are automatically skipped to avoid duplicate forwarding
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
-- Both hooks use `async: true` so they never block Claude's response
+- **Notification hook** receives a `message` key in stdin — falls back to "⏳ Claude가 입력 대기 중입니다." if empty
+- **PreCompact hook** uses `echo` to inject a fixed JSON message since PreCompact stdin data doesn't include a user-readable message
+- All hooks use `async: true` so they never block Claude's response
 - Messages are truncated to 4096 characters (Telegram's limit)
+
+## Hook event coverage
+
+| Event | Hook | When it fires |
+|-------|------|---------------|
+| UserPromptSubmit | telegram-user-forward.py | User sends a message in terminal |
+| Stop | telegram-forward.py | Claude finishes a response |
+| Notification | telegram-notify.py | Claude needs user attention (permission prompt, input wait) |
+| PreCompact | telegram-notify.py (inline) | Token limit reached, context being compressed |
