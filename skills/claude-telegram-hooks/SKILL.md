@@ -114,9 +114,11 @@ except Exception:
 
 ### `~/.claude/scripts/telegram-notify.py` (Notification hook — attention alerts)
 
+Only fires when actual user decision is required (e.g. permission prompts). Generic "waiting for input" messages after task completion are filtered out to avoid noise.
+
 ```python
 #!/usr/bin/env python3
-"""Notification hook: sends Telegram alert when Claude needs user attention."""
+"""Notification hook: Claude가 실제 사용자 결정이 필요할 때만 텔레그램으로 알림."""
 import sys, json, os, urllib.request
 
 config_path = os.path.expanduser("~/.claude/telegram-hooks.json")
@@ -126,11 +128,22 @@ with open(config_path) as f:
 BOT_TOKEN = config["bot_token"]
 CHAT_ID = config["chat_id"]
 
+# 일반 대기 메시지 (단순 작업 완료 후 입력 대기) — 알림 불필요
+GENERIC_IDLE_PATTERNS = [
+    "claude is waiting for your input",
+    "waiting for your input",
+    "waiting for input",
+]
+
 try:
     data = json.load(sys.stdin)
     msg = data.get("message", "").strip()
+
+    # 메시지가 없거나 일반 대기 메시지면 전송하지 않음
     if not msg:
-        msg = "⏳ Claude가 입력 대기 중입니다."
+        sys.exit(0)
+    if any(pattern in msg.lower() for pattern in GENERIC_IDLE_PATTERNS):
+        sys.exit(0)
 
     payload = json.dumps({
         "chat_id": CHAT_ID,
