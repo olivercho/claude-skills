@@ -34,6 +34,8 @@ Automatically forwards your Claude Code terminal conversations to Telegram — b
 
 Parses Claude Code transcripts to calculate per-project token usage and estimated cost. Generates a dark-themed HTML report and a text summary.
 
+![token-usage report screenshot](assets/token-usage-preview.png)
+
 **Usage:** Tell Claude *"show token usage"*, *"비용 확인해줘"*, or *"얼마나 썼어"*
 
 ---
@@ -65,5 +67,7 @@ Claude Code 터미널 대화를 텔레그램으로 자동 전달해주는 스킬
 ### token-usage
 
 `~/.claude/projects/` 아래 JSONL 트랜스크립트를 파싱해 프로젝트별 토큰 사용량과 Sonnet 4.6 기준 예상 비용을 산출합니다. 어두운 테마의 HTML 리포트와 텍스트 요약을 생성해 줍니다.
+
+![token-usage report screenshot](assets/token-usage-preview.png)
 
 **사용법:** *"토큰 사용량 확인해줘"*, *"비용 얼마나 썼어"* 라고 하면 됩니다.
