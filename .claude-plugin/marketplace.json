@@ -9,6 +9,11 @@
       "name": "claude-telegram-hooks",
       "source": "./skills/claude-telegram-hooks",
       "description": "Automatic Telegram forwarding for Claude Code sessions"
+    },
+    {
+      "name": "token-usage",
+      "source": "./skills/token-usage",
+      "description": "Claude 프로젝트별 토큰 사용량과 예상 비용을 산출하고 HTML 리포트를 생성한다"
     }
   ]
 }
