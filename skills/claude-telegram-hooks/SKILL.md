@@ -242,6 +242,7 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 
 - **UserPromptSubmit hook** sends data with a `prompt` key (not `message`) — the script handles both for compatibility
 - **Telegram plugin compatibility**: messages from Telegram arrive wrapped in `<channel source="plugin:telegram:telegram">` tags — these are already visible in Telegram, so they are automatically skipped to avoid duplicate forwarding
+- **`claude -p` subprocess trap**: when code calls `claude -p "..."` as a subprocess (e.g. to invoke an LLM for analysis), that spawns a new Claude Code session with its own hooks. The `UserPromptSubmit` hook fires on that session and forwards the prompt text to Telegram — including any long automated prompts like portfolio analysis queries. **Fix**: always pass `--bare` flag: `claude --bare -p "..."`. The `--bare` flag skips all hooks (and LSP, plugins, etc.), so the subprocess runs silently without triggering `UserPromptSubmit`.
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
 - **Notification hook** receives a `message` key in stdin — falls back to "⏳ Claude가 입력 대기 중입니다." if empty
 - **PreCompact hook** uses `echo` to inject a fixed JSON message since PreCompact stdin data doesn't include a user-readable message
