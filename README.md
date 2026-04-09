@@ -38,6 +38,12 @@ Parses Claude Code transcripts to calculate per-project token usage and estimate
 
 **Usage:** Tell Claude *"show token usage"*, *"비용 확인해줘"*, or *"얼마나 썼어"*
 
+### hotspot
+
+Analyzes git history to identify the riskiest files, bus factor, team momentum, and firefighting frequency — before reading a single line of code.
+
+**Usage:** Tell Claude *"hotspot 분석해줘"*, *"위험한 파일 찾아줘"*, or *"run hotspot"*
+
 ---
 
 ## 설치 방법
@@ -71,3 +77,9 @@ Claude Code 터미널 대화를 텔레그램으로 자동 전달해주는 스킬
 ![token-usage report screenshot](assets/token-usage-preview.png)
 
 **사용법:** *"토큰 사용량 확인해줘"*, *"비용 얼마나 썼어"* 라고 하면 됩니다.
+
+### hotspot
+
+git 히스토리만으로 위험 파일·버스 팩터·팀 모멘텀·핫픽스 빈도를 진단합니다. 코드 한 줄 읽기 전에 실행하면 어디서부터 봐야 할지 파악할 수 있어요.
+
+**사용법:** *"hotspot 분석해줘"*, *"위험한 파일 찾아줘"* 라고 하면 됩니다.
