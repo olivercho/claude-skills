@@ -46,7 +46,7 @@ Create `~/.claude/scripts/` if it doesn't exist, then write all three scripts.
 ```python
 #!/usr/bin/env python3
 """Stop hook: forwards last assistant text response to Telegram."""
-import sys, json, os, urllib.request
+import sys, json, os, re, urllib.request
 
 config_path = os.path.expanduser("~/.claude/telegram-hooks.json")
 with open(config_path) as f:
@@ -55,9 +55,24 @@ with open(config_path) as f:
 BOT_TOKEN = config["bot_token"]
 CHAT_ID = config["chat_id"]
 
+# System tags that should not be forwarded to Telegram
+SYSTEM_TAG_PATTERNS = [
+    r"<task-notification>.*?</task-notification>",
+    r"<system-reminder>.*?</system-reminder>",
+    r"\(\(Oliver\)\)\s*<[^>]+>.*",
+]
+
 try:
     data = json.load(sys.stdin)
     msg = data.get("last_assistant_message", "").strip()
+    if not msg:
+        sys.exit(0)
+
+    # Strip system tags
+    for pattern in SYSTEM_TAG_PATTERNS:
+        msg = re.sub(pattern, "", msg, flags=re.DOTALL)
+    msg = msg.strip()
+
     if not msg:
         sys.exit(0)
 
