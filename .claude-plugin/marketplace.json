@@ -13,7 +13,12 @@
     {
       "name": "token-usage",
       "source": "./skills/token-usage",
-      "description": "Claude 프로젝트별 토큰 사용량과 예상 비용을 산출하고 HTML 리포트를 생성한다"
+      "description": "Parse Claude Code transcripts to calculate per-project token usage and estimated cost"
+    },
+    {
+      "name": "hotspot",
+      "source": "./skills/hotspot",
+      "description": "Diagnose codebase risk from git history alone — hot files, bus factor, firefighting frequency"
     }
   ]
 }

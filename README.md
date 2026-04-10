@@ -1,12 +1,70 @@
 # claude-skills
 
-A collection of Claude Code skills by Oliver Cho.
+Claude Code skills by Oliver Cho — install once, use forever.
 
-A collection of Claude Code skills — install once, use forever.
+> **Scope:** Practical productivity skills for Claude Code. Monitor your sessions via Telegram, measure what things cost, and diagnose risk in your codebase before reading a single line. Three standalone skills — each immediately useful, better together.
+
+---
+
+## Skills
+
+### `/claude-telegram-hooks` — Telegram Session Monitor
+
+Bridges your Claude Code terminal to Telegram in real time. Every message you send, every response Claude gives, every permission prompt and context compaction — forwarded to your phone automatically.
+
+**What it sets up:**
+- **UserPromptSubmit hook** — your messages → Telegram with a configurable display name
+- **Stop hook** — Claude's responses → Telegram automatically
+- **Notification hook** — attention alerts when Claude needs input or permission
+- **PreCompact hook** — warns you before context gets compacted
+
+**Why it matters:**
+Long-running Claude Code tasks need monitoring. This lets you step away from the terminal, get notified when something needs your attention, and keep a timestamped log of every session — without checking back manually.
+
+---
+
+### `/token-usage` — Cost Analyzer
+
+Parses your Claude Code transcript history to calculate per-project token usage and estimated cost. Generates a dark-themed HTML report.
+
+**What it does:**
+- Reads all `~/.claude/projects/**/*.jsonl` transcripts
+- Classifies sessions by project name from folder structure and content
+- Calculates cost breakdown: input, cache write, cache read, output
+- Outputs: HTML report at `/tmp/token_usage_detailed.html` + text summary
+
+**Cost basis (claude-sonnet-4-6):** $3.00/M input · $3.75/M cache write · $0.30/M cache read · $15.00/M output
+
+**Why it matters:**
+You can't optimize what you can't measure. This shows which projects are burning the most tokens — usually a sign of missing cache hits, overly long system prompts, or sessions that should have been compacted.
+
+**Usage:** `"show token usage"` · `"비용 확인해줘"` · `"얼마나 썼어"`
+
+![token-usage report](assets/token-usage-preview.png)
+
+---
+
+### `/hotspot` — Git Risk Analyzer
+
+Diagnoses codebase risk from git history alone — no code reading required. Run this before onboarding to a new project or starting a risky refactor.
+
+**What it surfaces:**
+- **Hot files** — files changed most frequently (highest churn = highest risk)
+- **Bus factor** — which files only one person has touched
+- **Firefighting frequency** — commits with "fix", "hotfix", "urgent" patterns
+- **Team momentum** — recent activity distribution across contributors
+- **Staleness** — files not touched in months despite active codebase
+
+**Why it matters:**
+The riskiest files in a codebase are almost never the most complex ones — they're the most frequently changed ones. Git history reveals this in seconds. Knowing the hot zones before you read the code changes everything about where you start.
+
+**Usage:** `"hotspot 분석해줘"` · `"위험한 파일 찾아줘"` · `"run hotspot"`
 
 ---
 
 ## Installation
+
+### Plugin Marketplace (recommended)
 
 Add to `~/.claude/settings.json`:
 
@@ -18,68 +76,43 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-Then open `/plugins` in Claude Code and search for any skill below.
+Then open `/plugins` in Claude Code and search for any skill name.
 
----
+### Manual
 
-## Skills
+```bash
+SKILLS_DIR=~/.claude/skills
 
-### claude-telegram-hooks
+mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot}
 
-Automatically forwards your Claude Code terminal conversations to Telegram — both your messages and Claude's responses.
-
-**Usage:** Tell Claude *"set up Telegram forwarding"* or *"텔레그램 연동 설정해줘"*
-
-### token-usage
-
-Parses Claude Code transcripts to calculate per-project token usage and estimated cost. Generates a dark-themed HTML report and a text summary.
-
-![token-usage report screenshot](assets/token-usage-preview.png)
-
-**Usage:** Tell Claude *"show token usage"*, *"비용 확인해줘"*, or *"얼마나 썼어"*
-
-### hotspot
-
-Analyzes git history to identify the riskiest files, bus factor, team momentum, and firefighting frequency — before reading a single line of code.
-
-**Usage:** Tell Claude *"hotspot 분석해줘"*, *"위험한 파일 찾아줘"*, or *"run hotspot"*
-
----
-
-## 설치 방법
-
-`~/.claude/settings.json`에 추가:
-
-```json
-"extraKnownMarketplaces": {
-  "olivercho": {
-    "source": { "source": "github", "repo": "olivercho/claude-skills" }
-  }
-}
+cp skills/claude-telegram-hooks/SKILL.md $SKILLS_DIR/claude-telegram-hooks/SKILL.md
+cp skills/token-usage/SKILL.md           $SKILLS_DIR/token-usage/SKILL.md
+cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
 ```
 
-Claude Code에서 `/plugins` → 원하는 스킬 검색 후 설치.
+---
+
+## Recommended Flow
+
+**Starting a new project:**
+```
+/hotspot                  → understand risk before touching anything
+/claude-telegram-hooks    → set up monitoring so you can step away
+```
+
+**Ongoing:**
+```
+/token-usage              → periodic cost check (weekly or per milestone)
+```
+
+| Skill | When to run | Frequency |
+|-------|-------------|-----------|
+| `/hotspot` | Before reading unfamiliar code | On-demand |
+| `/claude-telegram-hooks` | Once per machine | One-time setup |
+| `/token-usage` | Cost visibility | Periodic |
 
 ---
 
-## 스킬 목록
+## License
 
-### claude-telegram-hooks
-
-Claude Code 터미널 대화를 텔레그램으로 자동 전달해주는 스킬. 내 메시지와 클로드 답변 모두 실시간으로 받아볼 수 있어요.
-
-**사용법:** 클로드에게 *"텔레그램 연동 설정해줘"* 라고 하면 됩니다.
-
-### token-usage
-
-`~/.claude/projects/` 아래 JSONL 트랜스크립트를 파싱해 프로젝트별 토큰 사용량과 Sonnet 4.6 기준 예상 비용을 산출합니다. 어두운 테마의 HTML 리포트와 텍스트 요약을 생성해 줍니다.
-
-![token-usage report screenshot](assets/token-usage-preview.png)
-
-**사용법:** *"토큰 사용량 확인해줘"*, *"비용 얼마나 썼어"* 라고 하면 됩니다.
-
-### hotspot
-
-git 히스토리만으로 위험 파일·버스 팩터·팀 모멘텀·핫픽스 빈도를 진단합니다. 코드 한 줄 읽기 전에 실행하면 어디서부터 봐야 할지 파악할 수 있어요.
-
-**사용법:** *"hotspot 분석해줘"*, *"위험한 파일 찾아줘"* 라고 하면 됩니다.
+MIT
