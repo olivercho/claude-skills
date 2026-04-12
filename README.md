@@ -2,7 +2,7 @@
 
 Claude Code skills by Oliver Cho — install once, use forever.
 
-> **Scope:** Practical productivity skills for Claude Code. Monitor your sessions via Telegram, measure what things cost, and diagnose risk in your codebase before reading a single line. Three standalone skills — each immediately useful, better together.
+> **Scope:** Practical productivity skills for Claude Code. Monitor your sessions via Telegram, measure what things cost, diagnose risk in your codebase, and watch GitHub repos for updates — all without leaving your terminal.
 
 ---
 
@@ -62,6 +62,33 @@ The riskiest files in a codebase are almost never the most complex ones — they
 
 ---
 
+### `/github-watch` — GitHub Repo Watcher
+
+Watches GitHub repositories for new commits and sends a Telegram notification when updates are detected. Zero dependencies — pure Python stdlib, no API tokens required for public repos.
+
+**What it does:**
+- Polls the GitHub API for new commits on any public repository
+- Stores the last-seen SHA in a local state file
+- Sends a Telegram message listing new commits (author, message, date) when a change is detected
+- Installs itself as a scheduled job (cron on Linux/Mac, Task Scheduler on Windows)
+
+**Supports:** Linux ✅ / macOS ✅ / Windows ✅
+
+**Why it matters:**
+Keeping up with fast-moving repos manually is noise. This runs silently in the background and only pings you when something actually changes — useful for tracking research repos, dependencies, or any project where you care about new commits.
+
+**Usage:**
+```
+/github-watch add owner/repo    → start watching a repo
+/github-watch list              → see all watched repos
+/github-watch remove owner/repo → stop watching
+/github-watch test              → send a test Telegram message
+```
+
+**Requirements:** Python 3.6+, Telegram bot token in `~/.claude/channels/telegram/.env`
+
+---
+
 ## Installation
 
 ### Plugin Marketplace (recommended)
@@ -83,11 +110,12 @@ Then open `/plugins` in Claude Code and search for any skill name.
 ```bash
 SKILLS_DIR=~/.claude/skills
 
-mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot}
+mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot,github-watch}
 
 cp skills/claude-telegram-hooks/SKILL.md $SKILLS_DIR/claude-telegram-hooks/SKILL.md
 cp skills/token-usage/SKILL.md           $SKILLS_DIR/token-usage/SKILL.md
 cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
+cp skills/github-watch/SKILL.md          $SKILLS_DIR/github-watch/SKILL.md
 ```
 
 ---
@@ -103,6 +131,7 @@ cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
 **Ongoing:**
 ```
 /token-usage              → periodic cost check (weekly or per milestone)
+/github-watch add owner/repo → track repos you care about
 ```
 
 | Skill | When to run | Frequency |
@@ -110,6 +139,7 @@ cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
 | `/hotspot` | Before reading unfamiliar code | On-demand |
 | `/claude-telegram-hooks` | Once per machine | One-time setup |
 | `/token-usage` | Cost visibility | Periodic |
+| `/github-watch` | Tracking repos for updates | One-time setup per repo |
 
 ---
 
