@@ -84,6 +84,11 @@ try:
     )
     urllib.request.urlopen(req, timeout=10)
 
+    # Mark pending Telegram reply as answered
+    pending_path = os.path.expanduser("~/.claude/.telegram-pending-reply")
+    if os.path.exists(pending_path):
+        os.remove(pending_path)
+
 except Exception:
     pass  # Never block Claude on hook failure
 ```
@@ -110,12 +115,56 @@ try:
     if not message:
         sys.exit(0)
 
-    # Skip messages that originated from Telegram — already visible there
+    # If message came from Telegram, save message_id as pending reply state
     if '<channel source="plugin:telegram:telegram"' in message:
+        import re
+        m = re.search(r'message_id="(\d+)"', message)
+        if m:
+            pending_path = os.path.expanduser("~/.claude/.telegram-pending-reply")
+            with open(pending_path, "w") as pf:
+                pf.write(m.group(1))
         sys.exit(0)
 
     text = f"{PREFIX} {message}"
     payload = json.dumps({"chat_id": CHAT_ID, "text": text[:4096]}).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    urllib.request.urlopen(req, timeout=10)
+
+except Exception:
+    pass
+```
+
+### `~/.claude/scripts/precompact-telegram-check.py` (PreCompact hook — unanswered message guard)
+
+If a Telegram message came in but Claude's session compresses before sending a reply, this script fires first and notifies the user so the message isn't silently lost.
+
+```python
+#!/usr/bin/env python3
+"""PreCompact hook: warn via Telegram if there's an unanswered Telegram message."""
+import os, json, urllib.request
+
+config_path = os.path.expanduser("~/.claude/telegram-hooks.json")
+pending_path = os.path.expanduser("~/.claude/.telegram-pending-reply")
+
+if not os.path.exists(pending_path):
+    exit(0)
+
+try:
+    with open(pending_path) as f:
+        message_id = f.read().strip()
+
+    with open(config_path) as f:
+        config = json.load(f)
+
+    BOT_TOKEN = config["bot_token"]
+    CHAT_ID = config["chat_id"]
+
+    text = f"⚠️ 세션 압축 직전 — 텔레그램 메시지 #{message_id}에 아직 답변이 전송되지 않았어요. 다음 세션에서 이어서 답변할게요."
+    payload = json.dumps({"chat_id": CHAT_ID, "text": text}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         data=payload,
@@ -187,7 +236,7 @@ Read `~/.claude/settings.json` first, then merge in the following hooks (preserv
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"message\": \"⚡ 토큰 한도 도달 - 컨텍스트 압축 중\"}' | python3 ~/.claude/scripts/telegram-notify.py",
+            "command": "python3 ~/.claude/scripts/precompact-telegram-check.py; echo '{\"message\": \"⚡ 토큰 한도 도달 - 컨텍스트 압축 중\"}' | python3 ~/.claude/scripts/telegram-notify.py",
             "timeout": 10,
             "async": true
           }
@@ -260,7 +309,8 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 - **`claude -p` subprocess trap**: when code calls `claude -p "..."` as a subprocess (e.g. to invoke an LLM for analysis), that spawns a new Claude Code session with its own hooks. The `UserPromptSubmit` hook fires on that session and forwards the prompt text to Telegram — including any long automated prompts like portfolio analysis queries. **Fix**: always pass `--bare` flag: `claude --bare -p "..."`. The `--bare` flag skips all hooks (and LSP, plugins, etc.), so the subprocess runs silently without triggering `UserPromptSubmit`.
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
 - **Notification hook** receives a `message` key in stdin — falls back to "⏳ Claude가 입력 대기 중입니다." if empty
-- **PreCompact hook** uses `echo` to inject a fixed JSON message since PreCompact stdin data doesn't include a user-readable message
+- **PreCompact hook** first runs `precompact-telegram-check.py` to warn if there's an unanswered Telegram message, then uses `echo` to inject a fixed JSON compaction alert
+- **Pending reply tracking**: when a Telegram message arrives, `UserPromptSubmit` saves the message_id to `~/.claude/.telegram-pending-reply`. The `Stop` hook deletes this file after forwarding a response. If `PreCompact` fires while the file still exists, the user gets a warning that the message was not answered before compaction.
 - All hooks use `async: true` so they never block Claude's response
 - Messages are truncated to 4096 characters (Telegram's limit)
 
@@ -268,7 +318,7 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 
 | Event | Hook | When it fires |
 |-------|------|---------------|
-| UserPromptSubmit | telegram-user-forward.py | User sends a message in terminal |
-| Stop | telegram-forward.py | Claude finishes a response |
+| UserPromptSubmit | telegram-user-forward.py | User sends a message in terminal; saves message_id if from Telegram |
+| Stop | telegram-forward.py | Claude finishes a response; clears pending reply state |
 | Notification | telegram-notify.py | Claude needs user attention (permission prompt, input wait) |
-| PreCompact | telegram-notify.py (inline) | Token limit reached, context being compressed |
+| PreCompact | precompact-telegram-check.py + telegram-notify.py (inline) | Warns if unanswered Telegram message exists, then sends compaction alert |
