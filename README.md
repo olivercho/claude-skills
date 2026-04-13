@@ -62,6 +62,25 @@ The riskiest files in a codebase are almost never the most complex ones — they
 
 ---
 
+### `/context-autosave` — Context Auto-Save
+
+Automatically saves your session when context usage reaches a threshold — before Claude Code compacts and potentially loses important state.
+
+**What it sets up:**
+- **Stop hook** — checks context % after every response using the session JSONL transcript
+- **Auto-trigger at 75%** — runs your save script once per session when the threshold is hit
+- **Compaction delay** — moves `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` to 90% so you have a buffer window between save (75%) and compaction (90%)
+- **Duplicate prevention** — flag file per session ensures the save runs exactly once per high-context zone
+
+**Why it matters:**
+When working via Telegram or stepping away from the terminal, you can't see the context bar. By the time compaction happens, it's too late to checkpoint. This runs silently in the background and triggers your save script before that window closes.
+
+**Usage:** `"컨텍스트 자동 저장 설정"` · `"context auto-save"` · `"75% 저장"`
+
+**Requirements:** `jq` (for JSONL parsing). Your own save script (git commit, file backup, etc.) — or use the built-in `simple-autosave.sh` template included in setup.
+
+---
+
 ### `/github-watch` — GitHub Repo Watcher
 
 Watches GitHub repositories for new commits and sends a Telegram notification when updates are detected. Zero dependencies — pure Python stdlib, no API tokens required for public repos.
@@ -110,12 +129,13 @@ Then open `/plugins` in Claude Code and search for any skill name.
 ```bash
 SKILLS_DIR=~/.claude/skills
 
-mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot,github-watch}
+mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot,github-watch,context-autosave}
 
 cp skills/claude-telegram-hooks/SKILL.md $SKILLS_DIR/claude-telegram-hooks/SKILL.md
 cp skills/token-usage/SKILL.md           $SKILLS_DIR/token-usage/SKILL.md
 cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
 cp skills/github-watch/SKILL.md          $SKILLS_DIR/github-watch/SKILL.md
+cp skills/context-autosave/SKILL.md      $SKILLS_DIR/context-autosave/SKILL.md
 ```
 
 ---
@@ -138,6 +158,7 @@ cp skills/github-watch/SKILL.md          $SKILLS_DIR/github-watch/SKILL.md
 |-------|-------------|-----------|
 | `/hotspot` | Before reading unfamiliar code | On-demand |
 | `/claude-telegram-hooks` | Once per machine | One-time setup |
+| `/context-autosave` | Once per machine | One-time setup |
 | `/token-usage` | Cost visibility | Periodic |
 | `/github-watch` | Tracking repos for updates | One-time setup per repo |
 
