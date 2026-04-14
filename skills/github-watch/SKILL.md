@@ -71,8 +71,8 @@ LOG_FILE      : 실행 로그 파일
                 Windows:   %USERPROFILE%\logs\github_watcher.log
 
 SCHEDULE      : 실행 주기
-                Linux/Mac: cron 표현식 (기본 "0 0 * * *" = 매일 00:00 UTC)
-                Windows:   Task Scheduler 시간 (기본 "09:00" daily)
+                Linux/Mac: cron 표현식 (기본 "*/5 * * * *" = 5분마다, Events API + ETag 모드)
+                Windows:   Task Scheduler 시간 (기본 every 5 min)
 
 NOTIFIER      : "telegram" | "slack" | "stdout" (기본: telegram)
 ```
@@ -135,7 +135,7 @@ NOTIFIER      : "telegram" | "slack" | "stdout" (기본: telegram)
    ```bash
    # 중복 방지
    crontab -l 2>/dev/null | grep -q github_repo_watcher && echo "already registered" || \
-   (crontab -l 2>/dev/null; echo "{CRON_SCHEDULE} {PYTHON} {SCRIPT_DIR}/github_repo_watcher.py >> {LOG_FILE} 2>&1") | crontab -
+   (crontab -l 2>/dev/null; echo "*/5 * * * * {PYTHON} {SCRIPT_DIR}/github_repo_watcher.py >> {LOG_FILE} 2>&1") | crontab -
    ```
 
    **Windows (Task Scheduler):**
@@ -192,29 +192,49 @@ NOTIFIER      : "telegram" | "slack" | "stdout" (기본: telegram)
 
 ---
 
-## 스크립트 템플릿
+## 스크립트 템플릿 (Events API + ETag 모드)
 
-`setup` 실행 시 생성하는 `github_repo_watcher.py`. Python 3.6+ / 크로스플랫폼.
+`setup` 실행 시 생성하는 `github_repo_watcher.py`.
+**GitHub Events API + ETag 캐싱** 방식 — 변경 없으면 304 응답으로 rate limit 소모 없음.
+5분 폴링 + 인증 토큰 = 사실상 무제한 실행 가능.
 
 ```python
 #!/usr/bin/env python3
 """
-GitHub Repo Watcher — github-watch skill로 설치됨
-새 커밋 감지 시 Telegram 알림 전송.
-설정: github_watch_state.json (같은 디렉토리)
+GitHub Repo Watcher — Events API + ETag mode
+새 PushEvent를 감지하면 Telegram 알림 전송.
+ETag 캐싱으로 rate limit 소비 최소화 (304 응답 = 0 rate limit 소모).
+
+State: ~/scripts/github_watch_state.json
+Cron:  */5 * * * *  (5분마다 실행)
 """
 
-import json, os, sys, urllib.request, urllib.error
+import json, os, subprocess, sys, urllib.request, urllib.error
 from datetime import datetime, timezone
 
-# ── 설정 (github-watch skill이 설치 시 채워줌) ──
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE   = os.path.join(SCRIPT_DIR, "github_watch_state.json")
 TELEGRAM_ENV = os.path.expanduser("~/.claude/channels/telegram/.env")
-TELEGRAM_CHAT_ID = ""   # skill add 시 채워줌
+TELEGRAM_CHAT_ID = ""  # skill add 시 채워줌
+
+WATCHED_REPOS = []  # skill add로 추가됨
 
 
-def load_token():
+def get_github_token():
+    """gh CLI에서 토큰 추출 (없으면 환경변수 폴백)."""
+    try:
+        result = subprocess.run(["gh", "auth", "token"],
+                                capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            t = result.stdout.strip()
+            if t:
+                return t
+    except Exception:
+        pass
+    return os.environ.get("GITHUB_TOKEN")
+
+
+def load_telegram_token():
     try:
         with open(TELEGRAM_ENV) as f:
             for line in f:
@@ -225,56 +245,63 @@ def load_token():
     return None
 
 
-def get_latest_commit(repo):
-    url = f"https://api.github.com/repos/{repo}/commits?per_page=1"
-    req = urllib.request.Request(url, headers={"User-Agent": "github-watcher/1.0"})
+def fetch_events(repo, etag, github_token):
+    """Returns (events_or_None, new_etag, status_code)."""
+    url = f"https://api.github.com/repos/{repo}/events?per_page=30"
+    headers = {
+        "User-Agent": "github-watcher/2.0",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+    if etag:
+        headers["If-None-Match"] = etag
+
+    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read())
-            if data:
-                c = data[0]
-                return {
-                    "sha":     c["sha"],
-                    "message": c["commit"]["message"].split("\n")[0],
-                    "author":  c["commit"]["author"]["name"],
-                    "date":    c["commit"]["author"]["date"][:10],
-                    "url":     c["html_url"]
-                }
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read()), resp.headers.get("ETag"), resp.status
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return None, etag, 304
+        print(f"[ERROR] GitHub API HTTP {e.code} for {repo}", file=sys.stderr)
+        return [], etag, e.code
     except Exception as e:
         print(f"[ERROR] {repo}: {e}", file=sys.stderr)
-    return None
+        return [], etag, 0
 
 
-def get_new_commits(repo, since_sha, limit=5):
-    url = f"https://api.github.com/repos/{repo}/commits?per_page=20"
-    req = urllib.request.Request(url, headers={"User-Agent": "github-watcher/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read())
-            result = []
-            for c in data:
-                if c["sha"] == since_sha:
-                    break
-                result.append({
-                    "sha":     c["sha"][:7],
-                    "message": c["commit"]["message"].split("\n")[0],
-                    "author":  c["commit"]["author"]["name"],
-                    "date":    c["commit"]["author"]["date"][:10]
-                })
-                if len(result) >= limit:
-                    break
-            return result
-    except Exception as e:
-        print(f"[ERROR] {e}", file=sys.stderr)
-        return []
+def extract_push_commits(events, since_event_id, limit=5):
+    new_commits, latest_event_id = [], since_event_id
+    for event in events:
+        if event.get("type") != "PushEvent":
+            continue
+        event_id = event.get("id")
+        if since_event_id and event_id and event_id <= since_event_id:
+            break
+        if latest_event_id is None or (event_id and event_id > latest_event_id):
+            latest_event_id = event_id
+        payload = event.get("payload", {})
+        branch = payload.get("ref", "").replace("refs/heads/", "")
+        actor = event.get("actor", {}).get("login", "unknown")
+        date = event.get("created_at", "")[:10]
+        for c in payload.get("commits", []):
+            new_commits.append({
+                "sha": c.get("sha", "")[:7],
+                "message": c.get("message", "").split("\n")[0][:80],
+                "author": c.get("author", {}).get("name", actor),
+                "branch": branch, "date": date,
+            })
+            if len(new_commits) >= limit:
+                return new_commits, latest_event_id
+    return new_commits, latest_event_id
 
 
 def send_telegram(token, chat_id, text):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({
-        "chat_id": chat_id, "text": text,
-        "parse_mode": "HTML", "disable_web_page_preview": True
-    }).encode()
+    payload = json.dumps({"chat_id": chat_id, "text": text,
+                           "parse_mode": "HTML", "disable_web_page_preview": True}).encode()
     req = urllib.request.Request(url, data=payload,
                                   headers={"Content-Type": "application/json"})
     try:
@@ -286,78 +313,70 @@ def send_telegram(token, chat_id, text):
 
 
 def main():
-    token = load_token()
-    if not token:
-        print("[ERROR] TELEGRAM_BOT_TOKEN not found in", TELEGRAM_ENV, file=sys.stderr)
-        sys.exit(1)
+    tg_token = load_telegram_token()
+    if not tg_token:
+        sys.exit("[ERROR] TELEGRAM_BOT_TOKEN not found")
+    tg_chat_id = TELEGRAM_CHAT_ID
+    if not tg_chat_id:
+        sys.exit("[ERROR] TELEGRAM_CHAT_ID not set")
 
-    chat_id = TELEGRAM_CHAT_ID
-    if not chat_id:
-        print("[ERROR] TELEGRAM_CHAT_ID not set. Edit this script.", file=sys.stderr)
-        sys.exit(1)
-
-    if not os.path.exists(STATE_FILE):
-        print("[ERROR] State file not found:", STATE_FILE, file=sys.stderr)
-        print("Run: /github-watch add owner/repo", file=sys.stderr)
-        sys.exit(1)
-
-    with open(STATE_FILE) as f:
-        state = json.load(f)
-
+    github_token = get_github_token()
+    state = json.loads(open(STATE_FILE).read()) if os.path.exists(STATE_FILE) else {}
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    changed = False
+    updated = False
 
-    for repo, info in state.items():
+    for watched in WATCHED_REPOS:
+        repo, name = watched["repo"], watched.get("name", watched["repo"].split("/")[1])
         print(f"[INFO] Checking {repo}...")
-        latest = get_latest_commit(repo)
-        if not latest:
+        repo_state = state.get(repo, {})
+        etag, last_event_id = repo_state.get("etag"), repo_state.get("last_event_id")
+
+        events, new_etag, status = fetch_events(repo, etag, github_token)
+        if status == 304:
+            print(f"[INFO] 304 Not Modified")
+            state.setdefault(repo, {})["last_checked"] = now
+            updated = True
+            continue
+        if not events or status >= 400:
             continue
 
-        last_sha = info.get("last_sha")
-        if not last_sha or latest["sha"] == last_sha:
-            print(f"[INFO] No update ({latest['sha'][:7]})")
-            info["last_checked"] = now
-            changed = True
+        if last_event_id is None:
+            latest_id = events[0]["id"] if events else None
+            print(f"[INFO] First run. Recording event_id={latest_id}")
+            state[repo] = {"last_event_id": latest_id, "etag": new_etag, "last_checked": now}
+            updated = True
             continue
 
-        new = get_new_commits(repo, last_sha)
-        name = info.get("name", repo.split("/")[1])
-        n = len(new) if new else 1
+        new_commits, latest_event_id = extract_push_commits(events, last_event_id)
+        state[repo] = {"last_event_id": latest_event_id or last_event_id,
+                        "etag": new_etag or etag, "last_checked": now}
+        updated = True
+
+        if not new_commits:
+            print(f"[INFO] No new push commits")
+            continue
+
+        n = len(new_commits)
         lines = "\n".join(
-            f"  • [{c['sha']}] {c['message']} ({c['author']}, {c['date']})"
-            for c in new
-        ) if new else f"  • {latest['sha'][:7]}: {latest['message']}"
-
-        msg = (
-            f"🔔 <b>{name}</b> 업데이트\n"
-            f"📦 <code>{repo}</code>\n\n"
-            f"새 커밋 {n}개:\n{lines}\n\n"
-            f"🔗 <a href=\"https://github.com/{repo}/commits\">커밋 히스토리</a>"
+            f"  • [{c['sha']}] <code>{c['branch']}</code> {c['message']} ({c['author']}, {c['date']})"
+            for c in new_commits
         )
-        if send_telegram(token, chat_id, msg):
+        msg = (f"🔔 <b>{name}</b> 업데이트\n📦 <code>{repo}</code>\n\n"
+               f"새 커밋 {n}개:\n{lines}\n\n"
+               f"🔗 <a href=\"https://github.com/{repo}/commits\">커밋 히스토리</a>")
+        state[repo]["last_notified_at"] = now
+        if send_telegram(tg_token, tg_chat_id, msg):
             print(f"[INFO] Notified: {n} new commit(s)")
-        else:
-            print(f"[ERROR] Telegram send failed", file=sys.stderr)
 
-        info.update({
-            "last_sha":          latest["sha"],
-            "last_checked":      now,
-            "last_notified_sha": latest["sha"],
-            "last_notified_at":  now
-        })
-        changed = True
-
-    if changed:
+    if updated:
         with open(STATE_FILE, "w") as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
-
-    print("[INFO] Done.")
+    print(f"[INFO] Done.")
 
 
 if __name__ == "__main__":
     main()
 ```
-
 ---
 
 ## 성공 기준
