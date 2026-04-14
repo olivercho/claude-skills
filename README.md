@@ -81,6 +81,33 @@ When working via Telegram or stepping away from the terminal, you can't see the 
 
 ---
 
+### `/link-safety-check` — External Link Risk Analyzer
+
+Statically analyzes GitHub repos, npm/pip packages, and web URLs for security risks — before you install or visit anything. No code execution. No API keys required.
+
+**What it checks:**
+
+| Target | Checks |
+|--------|--------|
+| GitHub repo | Star/age ratio (fake popularity), `curl\|bash` install patterns, `base64` payload obfuscation, `postinstall` auto-run scripts, hardcoded IPs, recent commit patterns |
+| npm package | `postinstall`/`preinstall` scripts, known CVEs via OSV.dev |
+| pip package | Known CVEs via OSV.dev, PyPI metadata |
+| Web URL | Redirect chain depth, typosquatting indicators, HTTP vs HTTPS, deep subdomain patterns |
+
+**Verdict levels:**
+- ✅ **SAFE** — no risk signals, trusted source
+- ⚠️ **CAUTION** — low activity or minor signals, proceed carefully
+- 🔴 **RISKY** — `curl|bash` pattern, known CVE, typosquatting, fake popularity indicators
+
+**Why it matters:**
+Supply chain attacks increasingly target developers through plausible-looking repos, typosquatted packages, and social-engineered install instructions. A 30-second static scan catches the most common attack vectors before any code touches your machine.
+
+**Usage:** `"이거 위험성 체크해줘"` · `"안전한가?"` · `/link-safety-check https://github.com/...`
+
+**Requirements:** Python 3, curl (both standard on macOS/Linux)
+
+---
+
 ### `/github-watch` — GitHub Repo Watcher
 
 Watches GitHub repositories for new commits and sends a Telegram notification when updates are detected. Zero dependencies — pure Python stdlib, no API tokens required for public repos.
@@ -129,13 +156,14 @@ Then open `/plugins` in Claude Code and search for any skill name.
 ```bash
 SKILLS_DIR=~/.claude/skills
 
-mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot,github-watch,context-autosave}
+mkdir -p $SKILLS_DIR/{claude-telegram-hooks,token-usage,hotspot,github-watch,context-autosave,link-safety-check}
 
-cp skills/claude-telegram-hooks/SKILL.md $SKILLS_DIR/claude-telegram-hooks/SKILL.md
-cp skills/token-usage/SKILL.md           $SKILLS_DIR/token-usage/SKILL.md
-cp skills/hotspot/SKILL.md               $SKILLS_DIR/hotspot/SKILL.md
-cp skills/github-watch/SKILL.md          $SKILLS_DIR/github-watch/SKILL.md
-cp skills/context-autosave/SKILL.md      $SKILLS_DIR/context-autosave/SKILL.md
+cp skills/claude-telegram-hooks/SKILL.md  $SKILLS_DIR/claude-telegram-hooks/SKILL.md
+cp skills/token-usage/SKILL.md            $SKILLS_DIR/token-usage/SKILL.md
+cp skills/hotspot/SKILL.md                $SKILLS_DIR/hotspot/SKILL.md
+cp skills/github-watch/SKILL.md           $SKILLS_DIR/github-watch/SKILL.md
+cp skills/context-autosave/SKILL.md       $SKILLS_DIR/context-autosave/SKILL.md
+cp skills/link-safety-check/SKILL.md      $SKILLS_DIR/link-safety-check/SKILL.md
 ```
 
 ---
@@ -157,6 +185,7 @@ cp skills/context-autosave/SKILL.md      $SKILLS_DIR/context-autosave/SKILL.md
 | Skill | When to run | Frequency |
 |-------|-------------|-----------|
 | `/hotspot` | Before reading unfamiliar code | On-demand |
+| `/link-safety-check` | Before installing/visiting any external link | On-demand |
 | `/claude-telegram-hooks` | Once per machine | One-time setup |
 | `/context-autosave` | Once per machine | One-time setup |
 | `/token-usage` | Cost visibility | Periodic |
