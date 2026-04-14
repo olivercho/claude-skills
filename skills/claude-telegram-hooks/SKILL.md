@@ -62,6 +62,10 @@ SYSTEM_TAG_PATTERNS = [
     r"\(\(Oliver\)\)\s*<[^>]+>.*",
 ]
 
+# Skip batch/non-interactive sessions (e.g. claude -p from scripts)
+if os.environ.get('CLAUDE_BATCH_MODE'):
+    sys.exit(0)
+
 try:
     data = json.load(sys.stdin)
     msg = data.get("last_assistant_message", "").strip()
@@ -98,7 +102,7 @@ except Exception:
 ```python
 #!/usr/bin/env python3
 """UserPromptSubmit hook: forwards user's terminal message to Telegram with prefix."""
-import sys, json, os, urllib.request
+import sys, json, os, re, urllib.request
 
 config_path = os.path.expanduser("~/.claude/telegram-hooks.json")
 with open(config_path) as f:
@@ -107,6 +111,10 @@ with open(config_path) as f:
 BOT_TOKEN = config["bot_token"]
 CHAT_ID = config["chat_id"]
 PREFIX = f"(({config['user_name']}))"
+
+# Skip batch/non-interactive sessions (e.g. claude -p from scripts)
+if os.environ.get('CLAUDE_BATCH_MODE'):
+    sys.exit(0)
 
 try:
     data = json.load(sys.stdin)
@@ -117,12 +125,15 @@ try:
 
     # If message came from Telegram, save message_id as pending reply state
     if '<channel source="plugin:telegram:telegram"' in message:
-        import re
         m = re.search(r'message_id="(\d+)"', message)
         if m:
             pending_path = os.path.expanduser("~/.claude/.telegram-pending-reply")
             with open(pending_path, "w") as pf:
                 pf.write(m.group(1))
+        sys.exit(0)
+
+    # Skip system-generated events (task-notifications, system-reminders)
+    if '<task-notification>' in message or '<system-reminder>' in message:
         sys.exit(0)
 
     text = f"{PREFIX} {message}"
@@ -198,6 +209,10 @@ GENERIC_IDLE_PATTERNS = [
     "waiting for your input",
     "waiting for input",
 ]
+
+# Skip batch/non-interactive sessions
+if os.environ.get('CLAUDE_BATCH_MODE'):
+    sys.exit(0)
 
 try:
     data = json.load(sys.stdin)
@@ -306,7 +321,8 @@ If `"ok":true` appears in the output, the connection is working. Tell the user t
 
 - **UserPromptSubmit hook** sends data with a `prompt` key (not `message`) — the script handles both for compatibility
 - **Telegram plugin compatibility**: messages from Telegram arrive wrapped in `<channel source="plugin:telegram:telegram">` tags — these are already visible in Telegram, so they are automatically skipped to avoid duplicate forwarding
-- **`claude -p` subprocess trap**: when code calls `claude -p "..."` as a subprocess (e.g. to invoke an LLM for analysis), that spawns a new Claude Code session with its own hooks. The `UserPromptSubmit` hook fires on that session and forwards the prompt text to Telegram — including any long automated prompts like portfolio analysis queries. **Fix**: always pass `--bare` flag: `claude --bare -p "..."`. The `--bare` flag skips all hooks (and LSP, plugins, etc.), so the subprocess runs silently without triggering `UserPromptSubmit`.
+- **`claude -p` subprocess trap**: when code calls `claude -p "..."` as a subprocess (e.g. to invoke an LLM for analysis), that spawns a new Claude Code session with its own hooks. The `UserPromptSubmit` and `Stop` hooks fire on that session, forwarding internal prompts and responses to Telegram. **Fix**: set `CLAUDE_BATCH_MODE=1` env var on the subprocess call, and all three hook scripts check for this and exit silently: `subprocess.run(["claude", "-p", ...], env={**os.environ, "CLAUDE_BATCH_MODE": "1"}, ...)`. Note: `--bare` flag is NOT suitable for OAuth users as it disables keychain/OAuth authentication.
+- **`<task-notification>` filter**: `UserPromptSubmit` can receive system-generated `<task-notification>` and `<system-reminder>` messages as prompt content. These are filtered in `telegram-user-forward.py` to prevent noise.
 - **Stop hook** receives `last_assistant_message` directly in stdin data — no need to read JSONL files
 - **Notification hook** receives a `message` key in stdin — falls back to "⏳ Claude가 입력 대기 중입니다." if empty
 - **PreCompact hook** first runs `precompact-telegram-check.py` to warn if there's an unanswered Telegram message, then uses `echo` to inject a fixed JSON compaction alert
